@@ -1,0 +1,418 @@
+
+import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "../context/useAuth";
+
+import api from "../services/api";
+import "./Boards.css";
+
+const getList = (data) => {
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.results)) return data.results;
+    return [];
+};
+
+function Boards() {
+    const { selectedWorkspaceId } = useAuth();
+
+    const [boards, setBoards] = useState([]);
+    const [projects, setProjects] = useState([]);
+
+    const [boardData, setBoardData] = useState({
+        project: "",
+        name: "",
+        description: "",
+        is_default: false,
+    });
+
+    const [loading, setLoading] = useState(true);
+    const [creating, setCreating] = useState(false);
+    const [error, setError] = useState("");
+    const [success, setSuccess] = useState("");
+
+    // FETCH BOARDS AND PROJECTS
+    const fetchData = useCallback(async () => {
+        try {
+            const [boardResponse, projectResponse] = await Promise.all([
+                api.get("projects/boards/"),
+                api.get("projects/"),
+            ]);
+
+            setBoards(getList(boardResponse.data));
+            setProjects(getList(projectResponse.data));
+            setError("");
+        } catch (err) {
+            setError(
+                err.response?.data?.detail ||
+                "Unable to load boards."
+            );
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    // INITIAL DATA FETCH
+useEffect(() => {
+    Promise.resolve().then(() => {
+        fetchData();
+    });
+}, [fetchData]);
+
+    // FILTER PROJECTS BY SELECTED WORKSPACE
+    const filteredProjects = selectedWorkspaceId
+        ? projects.filter(
+            (project) =>
+                String(project.workspace) === String(selectedWorkspaceId)
+        )
+        : [];
+
+    // KEEP PROJECT SELECTION VALID FOR CURRENT WORKSPACE
+    const selectedProjectId = filteredProjects.some(
+        (project) => String(project.id) === String(boardData.project)
+    )
+        ? boardData.project
+        : "";
+
+    // GET PROJECT IDS OF SELECTED WORKSPACE
+    const workspaceProjectIds = filteredProjects.map(
+        (project) => String(project.id)
+    );
+
+    // FILTER BOARDS BY SELECTED WORKSPACE
+    const filteredBoards = boards.filter(
+        (board) =>
+            workspaceProjectIds.includes(String(board.project))
+    );
+
+    // FORM CHANGE
+    const handleChange = (e) => {
+        const { name, value, type, checked } = e.target;
+
+        setBoardData((previous) => ({
+            ...previous,
+            [name]: type === "checkbox" ? checked : value,
+        }));
+
+        setError("");
+        setSuccess("");
+    };
+
+    // CREATE BOARD
+    const handleCreateBoard = async (e) => {
+        e.preventDefault();
+
+        setError("");
+        setSuccess("");
+
+        if (!selectedWorkspaceId) {
+            setError("Please select a workspace.");
+            return;
+        }
+
+        if (!selectedProjectId) {
+            setError("Please select a project.");
+            return;
+        }
+
+        if (!boardData.name.trim()) {
+            setError("Please enter a board name.");
+            return;
+        }
+
+        try {
+            setCreating(true);
+
+            await api.post("projects/boards/", {
+                project: Number(selectedProjectId),
+                name: boardData.name.trim(),
+                description: boardData.description.trim(),
+                is_default: boardData.is_default,
+            });
+
+            setBoardData({
+                project: "",
+                name: "",
+                description: "",
+                is_default: false,
+            });
+
+            setSuccess("Board created successfully!");
+
+            await fetchData();
+        } catch (err) {
+            const data = err.response?.data;
+
+            setError(
+                data?.detail ||
+                data?.name?.[0] ||
+                data?.project?.[0] ||
+                "Unable to create board."
+            );
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    // GET PROJECT NAME
+    const getProjectName = (projectId) => {
+        const project = projects.find(
+            (item) => String(item.id) === String(projectId)
+        );
+
+        return project?.name || `Project #${projectId}`;
+    };
+
+    return (
+        <div className="boards-page">
+
+            {/* HEADER */}
+            <div className="boards-header">
+                <div>
+                    <p className="boards-breadcrumb">
+                        BOARD MANAGEMENT
+                    </p>
+
+                    <h1>Boards</h1>
+
+                    <p className="boards-subtitle">
+                        Manage boards in your selected workspace.
+                    </p>
+                </div>
+
+                <div className="boards-count">
+                    <span>{filteredBoards.length}</span>
+                    <small>Workspace Boards</small>
+                </div>
+            </div>
+
+            {/* CREATE BOARD */}
+            <div className="board-create-card">
+
+                <div>
+                    <h2>Create a Board</h2>
+
+                    <p>
+                        Select a project and create a board for managing tasks.
+                    </p>
+                </div>
+
+                <form onSubmit={handleCreateBoard}>
+
+                    <div className="board-form-grid">
+
+                        <div className="board-form-group">
+                            <label>Select Project</label>
+
+                            <select
+                                name="project"
+                                value={selectedProjectId}
+                                onChange={handleChange}
+                                disabled={
+                                    !selectedWorkspaceId ||
+                                    filteredProjects.length === 0
+                                }
+                            >
+                                <option value="">
+                                    Select Project
+                                </option>
+
+                                {filteredProjects.map((project) => (
+                                    <option
+                                        key={project.id}
+                                        value={project.id}
+                                    >
+                                        {project.name} ({project.key})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="board-form-group">
+                            <label>Board Name</label>
+
+                            <input
+                                type="text"
+                                name="name"
+                                placeholder="e.g. Development Board"
+                                value={boardData.name}
+                                onChange={handleChange}
+                            />
+                        </div>
+
+                        <div className="board-form-group board-description">
+                            <label>Description</label>
+
+                            <textarea
+                                name="description"
+                                rows={3}
+                                placeholder="Describe your board..."
+                                value={boardData.description}
+                                onChange={handleChange}
+                            />
+                        </div>
+
+                    </div>
+
+                    <label className="board-checkbox">
+                        <input
+                            type="checkbox"
+                            name="is_default"
+                            checked={boardData.is_default}
+                            onChange={handleChange}
+                        />
+
+                        Set as default board
+                    </label>
+
+                    <button
+                        type="submit"
+                        className="board-create-button"
+                        disabled={
+                            creating ||
+                            !selectedWorkspaceId ||
+                            filteredProjects.length === 0
+                        }
+                    >
+                        {creating ? "Creating..." : "+ Create Board"}
+                    </button>
+
+                </form>
+
+                {error && (
+                    <p className="board-error">{error}</p>
+                )}
+
+                {success && (
+                    <p className="board-success">{success}</p>
+                )}
+
+                {!selectedWorkspaceId && (
+                    <p className="board-error">
+                        Please select a workspace from the sidebar.
+                    </p>
+                )}
+
+                {selectedWorkspaceId &&
+                    filteredProjects.length === 0 &&
+                    !loading && (
+                        <p className="board-error">
+                            Create a project in this workspace before creating a board.
+                        </p>
+                    )}
+
+            </div>
+
+            {/* BOARD LIST HEADER */}
+            <div className="board-list-header">
+
+                <div>
+                    <h2>Your Boards</h2>
+
+                    <p>
+                        Boards belonging to the selected workspace.
+                    </p>
+                </div>
+
+                <button
+                    type="button"
+                    className="board-refresh"
+                    onClick={fetchData}
+                >
+                    ↻ Refresh
+                </button>
+
+            </div>
+
+            {/* BOARD LIST */}
+            {loading ? (
+
+                <div className="board-empty">
+                    Loading boards...
+                </div>
+
+            ) : !selectedWorkspaceId ? (
+
+                <div className="board-empty">
+                    <h3>No workspace selected</h3>
+
+                    <p>
+                        Select a workspace from the sidebar dropdown.
+                    </p>
+                </div>
+
+            ) : filteredBoards.length === 0 ? (
+
+                <div className="board-empty">
+                    <div className="board-empty-icon">▤</div>
+
+                    <h3>No boards in this workspace</h3>
+
+                    <p>
+                        Create your first board using the form above.
+                    </p>
+                </div>
+
+            ) : (
+
+                <div className="board-grid">
+
+                    {filteredBoards.map((board) => (
+
+                        <div
+                            className="board-card"
+                            key={board.id}
+                        >
+
+                            <div className="board-card-top">
+
+                                <div className="board-card-icon">
+                                    ▤
+                                </div>
+
+                                {board.is_default && (
+                                    <span className="board-default">
+                                        Default
+                                    </span>
+                                )}
+
+                            </div>
+
+                            <h3>{board.name}</h3>
+
+                            <p className="board-card-description">
+                                {board.description ||
+                                    "No description added."}
+                            </p>
+
+                            <div className="board-project">
+                                <span>Project</span>
+
+                                <strong>
+                                    {getProjectName(board.project)}
+                                </strong>
+                            </div>
+
+                            <div className="board-card-footer">
+                                <span>
+                                    Board ID: {board.id}
+                                </span>
+
+                                <span>
+                                    {board.is_default
+                                        ? "Default Board"
+                                        : "Board"}
+                                </span>
+                            </div>
+
+                        </div>
+
+                    ))}
+
+                </div>
+
+            )}
+
+        </div>
+    );
+}
+
+export default Boards;

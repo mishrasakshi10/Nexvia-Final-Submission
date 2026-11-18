@@ -1,0 +1,90 @@
+
+import { useState } from "react";
+import { AuthContext } from "./AuthContext";
+import api from "../services/api";
+
+export function AuthProvider({ children }) {
+    const [accessToken, setAccessToken] = useState(
+        localStorage.getItem("accessToken")
+    );
+
+    const [refreshToken, setRefreshToken] = useState(
+        localStorage.getItem("refreshToken")
+    );
+
+    const [selectedWorkspaceId, setSelectedWorkspaceIdState] =
+        useState(localStorage.getItem("selectedWorkspaceId") || "");
+
+    const isAuthenticated = Boolean(accessToken);
+
+    // SELECT WORKSPACE
+    const setSelectedWorkspaceId = (workspaceId) => {
+        const value = workspaceId ? String(workspaceId) : "";
+
+        if (value) {
+            localStorage.setItem("selectedWorkspaceId", value);
+        } else {
+            localStorage.removeItem("selectedWorkspaceId");
+        }
+
+        setSelectedWorkspaceIdState(value);
+    };
+
+    // LOGIN
+    const login = async (credentials) => {
+        const response = await api.post("auth/token/", credentials);
+
+        const { access, refresh } = response.data;
+
+        localStorage.setItem("accessToken", access);
+        localStorage.setItem("refreshToken", refresh);
+
+        setAccessToken(access);
+        setRefreshToken(refresh);
+
+        return response.data;
+    };
+
+    // REGISTER
+    const register = async (userData) => {
+        const response = await api.post("auth/register/", userData);
+
+        return response.data;
+    };
+
+    // LOGOUT
+    const logout = async () => {
+        try {
+            if (refreshToken) {
+                await api.post("auth/logout/", {
+                    refresh: refreshToken,
+                });
+            }
+        } finally {
+            localStorage.removeItem("accessToken");
+            localStorage.removeItem("refreshToken");
+            localStorage.removeItem("selectedWorkspaceId");
+
+            setAccessToken(null);
+            setRefreshToken(null);
+            setSelectedWorkspaceIdState("");
+        }
+    };
+
+    return (
+        <AuthContext.Provider
+            value={{
+                accessToken,
+                refreshToken,
+                isAuthenticated,
+                selectedWorkspaceId,
+                setSelectedWorkspaceId,
+                login,
+                register,
+                logout,
+            }}
+        >
+            {children}
+        </AuthContext.Provider>
+    );
+}
